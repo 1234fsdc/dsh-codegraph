@@ -1,0 +1,4 @@
+{
+  "name": "CodeGraph",
+  "description": "Native CodeGraph tools for the current workspace: status, init, sync, explore, and optional symbol queries."
+}

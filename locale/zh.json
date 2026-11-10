@@ -1,0 +1,4 @@
+{
+  "name": "CodeGraph 代码图谱",
+  "description": "为当前工作区提供原生 CodeGraph 工具：状态、初始化、同步、代码探索，以及可选的符号查询。"
+}

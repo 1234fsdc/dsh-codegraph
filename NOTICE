@@ -1,0 +1,5 @@
+This package is based in part on dsh-codegraph-native 0.1.0 by bruceplxl
+(https://github.com/PlxloYzb/dsh-codegraph-native), licensed under the MIT License.
+
+It bundles and invokes @colbymchenry/codegraph, licensed under the MIT License.
+See https://github.com/colbymchenry/codegraph for the upstream project.

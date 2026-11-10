@@ -1,0 +1,65 @@
+{
+  "name": "dsh-codegraph-plugin",
+  "version": "0.1.1",
+  "description": "DeepSeek Harness bundle that installs the CodeGraph CLI and exposes native codegraph_* tools for the current session workspace.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "scripts": {
+    "test": "node test/run.mjs"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "dsh-bundle",
+    "codegraph",
+    "code-graph",
+    "code-search",
+    "code-intelligence",
+    "deepseek-harness"
+  ],
+  "license": "MIT",
+  "author": "CodeGraph plugin contributors",
+  "dsh": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "dependencies": {
+    "@colbymchenry/codegraph": "1.6.2"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-tools": "0.2.2-rc.1",
+    "@deepseek-ai/schemastery": "~3.19.0"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/schemastery": {
+      "optional": false
+    }
+  },
+  "engines": {
+    "node": ">=22.19.0 || >=24.0.0",
+    "dsh": ">=0.2.2-rc.1 <0.3.0-0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/1234fsdc/dsh-codegraph.git"
+  },
+  "homepage": "https://github.com/1234fsdc/dsh-codegraph#readme",
+  "bugs": {
+    "url": "https://github.com/1234fsdc/dsh-codegraph/issues"
+  }
+}
