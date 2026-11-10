@@ -5,7 +5,7 @@
     - id: dsh-codegraph-plugin
       name: dsh-codegraph-plugin
       config:
-        autoInit: true
+        autoInit: false
         maxAutoInitFiles: 5000
         initTimeoutMs: 600000
         queryTimeoutMs: 120000

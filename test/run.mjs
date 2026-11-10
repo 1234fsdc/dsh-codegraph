@@ -187,6 +187,20 @@ try {
     apply(autoCtx, { guideSearch: false, autoInit: true })
     const autoExec = { signal: new AbortController().signal, agent: { session: { header: { cwd: autoFixture } } } }
     assert.equal(autoDefinitions.length, 11, 'auto-init context should also register all eleven tools')
+
+    const defaultDefinitions = []
+    apply(
+      {
+        tools: { register(tool) { defaultDefinitions.push(tool) } },
+        systemPrompt: { section() { return () => {} } },
+        workingDirectory: { async ensure() { return autoFixture } }
+      },
+      { guideSearch: false }
+    )
+    const defaultExplore = defaultDefinitions.find((tool) => tool.name === 'codegraph_explore')
+    const defaultText = await defaultExplore.execute({ query: 'greet function' }, autoExec)
+    assert.match(defaultText, /not initialized/i, 'default config must not auto-init')
+    assert.match(defaultText, /codegraph_init/, 'default config should point at codegraph_init')
     const autoExplore = autoDefinitions.find((tool) => tool.name === 'codegraph_explore')
     const autoText = await autoExplore.execute({ query: 'greet function' }, autoExec)
     assert.match(autoText, /greet|shout/i, 'auto-init explore should return fixture symbols')

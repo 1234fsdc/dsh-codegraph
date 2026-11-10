@@ -71,23 +71,25 @@ The resident servers are stopped when the plugin unloads. The CodeGraph daemon i
     residentStartTimeoutMs: 30000
 ```
 
-## Automatic initialization
+## Initialization
 
-`autoInit` is enabled by default. On the first query for an unindexed workspace:
+By default the plugin does not build any index on its own — it matches the official `codegraph install`, which "wires up agents only". Point the tools at a project and run `codegraph_init` once (it executes `codegraph init -y`); afterwards the resident watcher keeps that index current.
 
-1. The plugin checks for a project marker such as `.git`, `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, or `pom.xml`.
-2. It counts project files (ignoring `node_modules`, `.git`, `dist`, `build`, etc.). If the count exceeds `maxAutoInitFiles` (default 5000), it asks you to run `codegraph_init` explicitly instead.
-3. It runs `codegraph init -y` non-interactively and then retries the query.
+Opt-in automation: set `autoInit: true` on the plugin row and the first query for an unindexed workspace will
+
+1. check for a project marker such as `.git`, `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, or `pom.xml`;
+2. count project files (ignoring `node_modules`, `.git`, `dist`, `build`, etc.) and skip if the count exceeds `maxAutoInitFiles` (default 5000), asking you to run `codegraph_init` explicitly instead;
+3. run `codegraph init -y` non-interactively and retry the query.
 
 The first index can take a while. For reference, the workspace this plugin was developed against has a CodeGraph database of about 2.47 GB, with 607 files and 7,934 nodes; budget time and disk space accordingly.
 
-To disable automatic initialization, set `autoInit: false` on the plugin row. To tune it:
+To tune it:
 
 ```yaml
 - id: dsh-codegraph-plugin
   name: dsh-codegraph-plugin
   config:
-    autoInit: true
+    autoInit: false
     maxAutoInitFiles: 5000
     initTimeoutMs: 600000
     queryTimeoutMs: 120000
