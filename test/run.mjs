@@ -6,6 +6,43 @@ import { homedir } from 'node:os'
 import { runCodegraph, formatOutcome } from '../lib/cli.js'
 import { countFiles, isProjectRoot } from '../lib/workspace.js'
 import { apply } from '../lib/index.js'
+import { stopAllResidents } from '../lib/resident.js'
+import { existsSync } from 'node:fs'
+import { spawn } from 'node:child_process'
+import { readFile } from 'node:fs/promises'
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+async function stopProjectDaemon(root) {
+  try {
+    const file = join(root, '.codegraph', 'daemon.pid')
+    if (!existsSync(file)) return
+    const { pid } = JSON.parse(await readFile(file, 'utf8'))
+    if (typeof pid !== 'number') return
+    if (process.platform === 'win32') {
+      spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' }).on('error', () => {})
+    } else {
+      try { process.kill(pid, 'SIGTERM') } catch { /* already gone */ }
+    }
+    await sleep(1500)
+  } catch {
+    // best-effort cleanup only
+  }
+}
+
+async function cleanupFixture(root) {
+  await stopAllResidents()
+  await stopProjectDaemon(root)
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      await rm(root, { recursive: true, force: true })
+      return
+    } catch (error) {
+      if (error.code !== 'EBUSY' && error.code !== 'EPERM' && error.code !== 'ENOTEMPTY') throw error
+      await sleep(1000)
+    }
+  }
+}
 
 if (!process.env.DSH_CODEGRAPH_PACKAGE_ROOT) {
   process.env.DSH_CODEGRAPH_PACKAGE_ROOT = join(
@@ -104,6 +141,34 @@ try {
   assert.match(queryText, /multiply/i, 'codegraph_query should return the fixture symbol')
   console.log('PASS: codegraph_node file mode and codegraph_query work')
 
+  const watched = await statusTool.execute({}, exec)
+  assert.match(watched, /watch: active/, 'status should report the resident watcher')
+
+  const beforeDelta = await queryTool.execute({ search: 'deltaWidget' }, exec)
+  assert.doesNotMatch(beforeDelta, /deltaWidget/, 'new symbol should not be indexed before the edit')
+  await writeFile(
+    join(src, 'math.js'),
+    'export function add(a, b) { return a + b }\n' +
+      'export function multiply(a, b) { return a * b }\n' +
+      'export function calc(a, b) { return add(a, b) + multiply(a, b) }\n' +
+      'export function deltaWidget(a) { return calc(a, 1) }\n'
+  )
+  let deltaText = ''
+  const deltaDeadline = Date.now() + 20000
+  while (Date.now() < deltaDeadline) {
+    deltaText = await queryTool.execute({ search: 'deltaWidget' }, exec)
+    if (/deltaWidget/.test(deltaText)) break
+    await sleep(500)
+  }
+  assert.match(deltaText, /deltaWidget/, 'resident watcher should re-index edits without codegraph_sync')
+  console.log('PASS: resident file watcher auto-syncs edits')
+
+  const initTool = definitions.find((tool) => tool.name === 'codegraph_init')
+  const rebuild = await initTool.execute({ force: true }, exec)
+  assert.match(rebuild, /initialized: true/, 'force rebuild should leave the project initialized')
+  assert.match(rebuild, /watch: active/, 'force rebuild should restart the resident watcher')
+  console.log('PASS: force rebuild uses codegraph index and restarts the watcher')
+
   const autoFixture = await mkdtemp(join(tmpdir(), 'dsh-codegraph-plugin-auto-'))
   try {
     await mkdir(join(autoFixture, 'src'), { recursive: true })
@@ -132,8 +197,8 @@ try {
     assert.equal(autoStatus.initialized, true, 'auto-init should create an index')
     console.log('PASS: autoInit initializes an unindexed project on first query')
   } finally {
-    await rm(autoFixture, { recursive: true, force: true })
+    await cleanupFixture(autoFixture)
   }
 } finally {
-  await rm(fixture, { recursive: true, force: true })
+  await cleanupFixture(fixture)
 }

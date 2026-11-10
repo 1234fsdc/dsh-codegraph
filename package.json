@@ -1,7 +1,7 @@
 {
   "name": "dsh-codegraph-plugin",
-  "version": "0.1.1",
-  "description": "DeepSeek Harness bundle that installs the CodeGraph CLI and exposes native codegraph_* tools for the current session workspace.",
+  "version": "0.2.0",
+  "description": "DeepSeek Harness bundle that installs the CodeGraph CLI, keeps a resident per-workspace index watcher, and exposes native codegraph_* tools.",
   "type": "module",
   "main": "lib/index.js",
   "exports": {

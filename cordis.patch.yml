@@ -12,3 +12,6 @@
         syncTimeoutMs: 300000
         maxFiles: 8
         guideSearch: true
+        resident: true
+        maxResidentProjects: 3
+        residentStartTimeoutMs: 30000

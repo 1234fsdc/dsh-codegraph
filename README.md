@@ -12,12 +12,12 @@ From GitHub:
 dsh plugin --profile desktop add -w --save-exact github:1234fsdc/dsh-codegraph
 ```
 
-Pin a release with `github:1234fsdc/dsh-codegraph#v0.1.1`.
+Pin a release with `github:1234fsdc/dsh-codegraph#v0.2.0`.
 
 From a release tarball:
 
 ```bash
-dsh plugin --profile desktop add -w --save-exact /absolute/path/to/dsh-codegraph-plugin-0.1.1.tgz
+dsh plugin --profile desktop add -w --save-exact /absolute/path/to/dsh-codegraph-plugin-0.2.0.tgz
 ```
 
 From a local checkout:
@@ -52,6 +52,25 @@ All tools are registered by default:
 | `codegraph_impact` | Analyze what code is affected by changing a symbol. |
 | `codegraph_affected` | Find test files affected by changed source files. |
 
+## Resident index watcher
+
+Starting with 0.2.0 the plugin keeps one CodeGraph MCP server alive per workspace, the same architecture the official `codegraph install` uses. The MCP launcher owns a detached CodeGraph daemon with a file watcher, a single SQLite connection and a warm query pool. As a result:
+
+- Edits are re-indexed automatically within about a second; `codegraph_sync` is only a manual fallback.
+- `codegraph_explore` is served over MCP instead of starting a CLI process per call. On the reference 2.47 GB / 607-file workspace a warm MCP explore took about 0.2 s versus about 1.1 s for a cold CLI run.
+- Startup happens lazily on the first tool call for a workspace and costs a few hundred milliseconds. The watcher uses roughly 150 MB of memory per active workspace.
+
+The resident servers are stopped when the plugin unloads. The CodeGraph daemon itself is shared per project and exits after its idle timeout (CodeGraph default: 5 minutes).
+
+```yaml
+- id: dsh-codegraph-plugin
+  name: dsh-codegraph-plugin
+  config:
+    resident: true            # false = CLI-only mode, one process per call
+    maxResidentProjects: 3    # LRU limit for simultaneously watched workspaces
+    residentStartTimeoutMs: 30000
+```
+
 ## Automatic initialization
 
 `autoInit` is enabled by default. On the first query for an unindexed workspace:
@@ -75,12 +94,16 @@ To disable automatic initialization, set `autoInit: false` on the plugin row. To
     syncTimeoutMs: 300000
     maxFiles: 8
     guideSearch: true
+    resident: true
+    maxResidentProjects: 3
+    residentStartTimeoutMs: 30000
 ```
 
 ## Notes
 
 - Each tool operates on the current session workspace by default. Pass `path` to target another project directory.
 - `codegraph_explore` returns source from the index; if a query misses, fall back to the built-in `grep`/`glob`/`read` tools.
+- `codegraph_init` with `force: true` stops the resident server, rebuilds with `codegraph index --force` (the real "rebuild from scratch" command), then restarts the watcher. The CLI's `init --force` flag only permits home/root paths, so the plugin does not use it for rebuilds.
 - The plugin sets `CODEGRAPH_NO_DOWNLOAD=1` for child processes so a missing platform package fails clearly instead of downloading silently.
 - CodeGraph is MIT-licensed. See `NOTICE` and the bundled `LICENSE` files.
 
