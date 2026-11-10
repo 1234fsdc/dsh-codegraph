@@ -2,7 +2,7 @@
 
 Native [CodeGraph](https://github.com/colbymchenry/codegraph) tools for DeepSeek Harness. The npm package is `dsh-codegraph-plugin`; the project repository is [dsh-codegraph](https://github.com/1234fsdc/dsh-codegraph).
 
-`dsh-codegraph-plugin` turns the CodeGraph CLI into native DSH tools. It bundles `@colbymchenry/codegraph@1.6.2`, so installing the plugin is enough — you do not need a global `codegraph` command.
+`dsh-codegraph-plugin` turns the CodeGraph CLI into native DSH tools. It bundles `@colbymchenry/codegraph@1.6.2`, so installing the plugin is enough — you do not need a global `codegraph` command. It keeps a resident CodeGraph MCP server per workspace (daemon + file watcher), the same architecture the official `codegraph install` uses, and follows the official explore-first tool surface.
 
 ## Install
 
@@ -12,12 +12,12 @@ From GitHub:
 dsh plugin --profile desktop add -w --save-exact github:1234fsdc/dsh-codegraph
 ```
 
-Pin a release with `github:1234fsdc/dsh-codegraph#v0.2.0`.
+Pin a release with `github:1234fsdc/dsh-codegraph#v0.3.0`.
 
 From a release tarball:
 
 ```bash
-dsh plugin --profile desktop add -w --save-exact /absolute/path/to/dsh-codegraph-plugin-0.2.0.tgz
+dsh plugin --profile desktop add -w --save-exact /absolute/path/to/dsh-codegraph-plugin-0.3.0.tgz
 ```
 
 From a local checkout:
@@ -36,21 +36,38 @@ Replace `desktop` with the DSH profile you use. Restart DSH if the plugin manage
 
 ## Tools
 
-All tools are registered by default:
+By default the plugin follows the official `codegraph install` surface: only `codegraph_explore` is listed to the agent. The official source keeps the narrower tools defined but does not list them, because "presence itself steers mis-picks" — its A/B data shows a search-only surface turned a 43% token saving on express into a 107% loss. `codegraph_init` is always listed as the bootstrap tool, because initialization is explicit by default and an unindexed project needs a way to build its index.
 
-| Tool | What it does |
-| --- | --- |
-| `codegraph_status` | Show whether the current project has a CodeGraph index and print counts. |
-| `codegraph_init` | Build the first index (creates `.codegraph/`); pass `force: true` to rebuild. |
-| `codegraph_sync` | Incrementally update the index after edits. |
-| `codegraph_explore` | Return relevant symbols' verbatim source plus call paths in one shot. |
-| `codegraph_query` | Search symbols by name and return matching nodes as JSON. |
-| `codegraph_node` | Show one symbol with its caller/callee trail, or read a file with line numbers. |
-| `codegraph_files` | Show the indexed file structure with language and symbol metadata. |
-| `codegraph_callers` | Find functions/methods that call a symbol. |
-| `codegraph_callees` | Find functions/methods a symbol calls. |
-| `codegraph_impact` | Analyze what code is affected by changing a symbol. |
-| `codegraph_affected` | Find test files affected by changed source files. |
+| Tool | What it does | Default |
+| --- | --- | --- |
+| `codegraph_init` | Build the first index (creates `.codegraph/`); pass `force: true` to rebuild. | always |
+| `codegraph_explore` | Return relevant symbols' verbatim source plus call paths in one shot. | default |
+| `codegraph_status` | Show whether the current project has a CodeGraph index and print counts. | off |
+| `codegraph_sync` | Incrementally update the index after edits. | off |
+| `codegraph_query` | Search symbols by name and return matching nodes as JSON. | off |
+| `codegraph_node` | Show one symbol with its caller/callee trail, or read a file with line numbers. | off |
+| `codegraph_files` | Show the indexed file structure with language and symbol metadata. | off |
+| `codegraph_callers` | Find functions/methods that call a symbol. | off |
+| `codegraph_callees` | Find functions/methods a symbol calls. | off |
+| `codegraph_impact` | Analyze what code is affected by changing a symbol. | off |
+| `codegraph_affected` | Find test files affected by changed source files. | off |
+
+### Tool surface
+
+The `tools` config controls which tools are listed. It accepts:
+
+- `['explore']` (default) — the official surface;
+- `'all'` — every tool, including the 10 above;
+- a comma-separated string such as `"explore,query,node"`;
+- a list such as `["explore", "status", "query"]`.
+
+Short names and `codegraph_`-prefixed names both work. Like the official
+`CODEGRAPH_MCP_TOOLS` allowlist this is a **load-time** decision: the tools are
+registered when the plugin loads, so changing it requires reloading the plugin
+(HMR or restart) — they do not appear mid-session.
+
+`codegraph_init` is always registered regardless of `tools` so an unindexed
+project can be initialized.
 
 ## Resident index watcher
 
@@ -96,6 +113,7 @@ To tune it:
     syncTimeoutMs: 300000
     maxFiles: 8
     guideSearch: true
+    tools: ['explore']        # 'all' or a list to expose more tools
     resident: true
     maxResidentProjects: 3
     residentStartTimeoutMs: 30000

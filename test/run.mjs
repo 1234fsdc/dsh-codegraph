@@ -102,7 +102,7 @@ try {
     systemPrompt: { section(section) { guideSections.push(section); return () => {} } },
     workingDirectory: { async ensure() { return fixture } }
   }
-  apply(ctx, { guideSearch: true, autoInit: false })
+  apply(ctx, { guideSearch: true, autoInit: false, tools: 'all' })
   assert.deepEqual(
     definitions.map((tool) => tool.name),
     [
@@ -120,6 +120,22 @@ try {
     ],
     'plugin should register all eleven tools by default'
   )
+
+  const defaultSurfaceDefinitions = []
+  apply(
+    {
+      tools: { register(tool) { defaultSurfaceDefinitions.push(tool) } },
+      systemPrompt: { section() { return () => {} } },
+      workingDirectory: { async ensure() { return fixture } }
+    },
+    { guideSearch: false }
+  )
+  assert.deepEqual(
+    defaultSurfaceDefinitions.map((tool) => tool.name),
+    ['codegraph_init', 'codegraph_explore'],
+    'default surface should list only the official explore tool plus the init bootstrap'
+  )
+
   assert.equal(guideSections.length, 1, 'guide section should be registered')
   assert.match(guideSections[0].text, /codegraph_explore/)
 
@@ -184,7 +200,7 @@ try {
       systemPrompt: { section() { return () => {} } },
       workingDirectory: { async ensure() { return autoFixture } }
     }
-    apply(autoCtx, { guideSearch: false, autoInit: true })
+    apply(autoCtx, { guideSearch: false, autoInit: true, tools: 'all' })
     const autoExec = { signal: new AbortController().signal, agent: { session: { header: { cwd: autoFixture } } } }
     assert.equal(autoDefinitions.length, 11, 'auto-init context should also register all eleven tools')
 

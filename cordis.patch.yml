@@ -12,6 +12,10 @@
         syncTimeoutMs: 300000
         maxFiles: 8
         guideSearch: true
+        # Official-style surface: only codegraph_explore is listed (plus the
+        # always-on codegraph_init bootstrap). Set "all" or a list to expose
+        # the remaining tools, e.g. ["explore", "query", "node", "status"].
+        tools: ['explore']
         resident: true
         maxResidentProjects: 3
         residentStartTimeoutMs: 30000
