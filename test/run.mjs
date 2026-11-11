@@ -8,7 +8,7 @@ import { countFiles, isProjectRoot } from '../lib/workspace.js'
 import { apply } from '../lib/index.js'
 import { probeIndex } from '../lib/readiness.js'
 import { listResidents, residentStatus, stopAllResidents } from '../lib/resident.js'
-import { renderGuide, staticGuide } from '../lib/guide.js'
+import { renderGuide, staticGuide, exploreDescription } from '../lib/guide.js'
 import { existsSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
@@ -182,6 +182,16 @@ try {
   const fatalGuide = renderGuide({ surface: new Set(['explore']), resident: true, watch: { state: 'fatal', lastError: 'boom' } })
   assert.match(fatalGuide, /gave up after repeated failures/, 'a fatal watcher should be reflected in the guide')
   assert.doesNotMatch(fatalGuide, /codegraph_sync/, 'the fatal note must not point at an unregistered codegraph_sync')
+
+  // The explore description follows the same live-surface principle as the guide.
+  const defaultDesc = exploreDescription(new Set(['explore', 'init']), true)
+  assert.match(defaultDesc, /PRIMARY TOOL — call FIRST/, 'description keeps the explore-first contract')
+  assert.match(defaultDesc, /codegraph_init/, 'default description should mention the bootstrap init tool')
+  assert.doesNotMatch(defaultDesc, /codegraph_query|codegraph_callers|codegraph_affected|codegraph_sync/, 'default description must not advertise unregistered tools')
+  const allDesc = exploreDescription(new Set(['explore', 'init', 'sync', 'query', 'node', 'files', 'callers', 'callees', 'impact', 'affected', 'status']), true)
+  assert.match(allDesc, /codegraph_callers/, 'all-surface description should list the narrower tools')
+  const noResidentDesc = exploreDescription(new Set(['explore', 'init']), false)
+  assert.match(noResidentDesc, /on-disk index/, 'resident: false should switch the freshness sentence')
 
   console.log('PASS: plugin registers all tools, executes status + explore, and renders the DSH guide')
 
