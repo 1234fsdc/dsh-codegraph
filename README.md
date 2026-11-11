@@ -91,11 +91,25 @@ The resident servers are stopped when the plugin unloads. The CodeGraph daemon i
     residentStartTimeoutMs: 30000
 ```
 
-## Official server instructions
+## System prompt
 
-Before the first resident MCP handshake the plugin shows its own short fallback guide in the system prompt. Once any `codegraph_*` tool has run in a workspace, the resident server's `initialize` response supplies the official CodeGraph server instructions (~6.7 KB — the exact text the official `codegraph install` injects), and that text replaces the fallback for every later prompt assembly. There is no second copy of the playbook to drift out of date; the section is registered with `interpolate: false` so the forwarded text is never rewritten.
+The plugin ships its own CodeGraph playbook (source: `lib/guide.md`) instead of forwarding the generic MCP server instructions. The upstream text is written for a bare MCP surface — "there is a single tool", "initialization is a terminal command the user runs" — which contradicts a native DSH plugin that registers eleven `codegraph_*` tools and a real `codegraph_init`. Versions 0.5.0-0.6.0 forwarded the upstream text and appended a scope note; 0.7.0 replaced both with one tailored document.
 
-The official text assumes its MCP server is the only surface ("there is a single tool") and has no init tool. This plugin appends a short "DSH integration notes" paragraph scoping those two statements: `codegraph_init` exists as a bootstrap-only extra and must only run when the user asks to enable CodeGraph for an unindexed project.
+What survives from the upstream framing:
+
+- the knowledge-graph model and the explore-first rule;
+- `codegraph_explore` as Read-equivalent (verbatim, line-numbered source + call paths + blast radius);
+- the anti-patterns (don't re-verify with grep, don't reconstruct a flow by hand);
+- the staleness banners and how to react to them;
+- the limitations (index lag, best-effort cross-file resolution, no correctness validation).
+
+What is rewritten for DSH:
+
+- the tool inventory is rendered from the live `tools` configuration, so the prompt only advertises the tools that are actually registered;
+- the watcher section is rendered from the live resident state (watcher active / reconnecting / gave up / disabled), so the model is told when the index does *not* follow edits;
+- the "initialization is the user's decision" rule is enforced by `codegraph_init`: run it only when the user asks to enable CodeGraph for a project that has no `.codegraph/` index.
+
+The section is registered with a dynamic text function, so the rendered guide is rebuilt at every prompt assembly and reflects the current tool surface and watcher state.
 
 ## Initialization
 

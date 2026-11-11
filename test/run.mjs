@@ -7,14 +7,14 @@ import { runCodegraph, formatOutcome } from '../lib/cli.js'
 import { countFiles, isProjectRoot } from '../lib/workspace.js'
 import { apply } from '../lib/index.js'
 import { probeIndex } from '../lib/readiness.js'
-import { listResidents, officialInstructions, residentStatus, resetInstructionsCache, stopAllResidents } from '../lib/resident.js'
+import { listResidents, residentStatus, stopAllResidents } from '../lib/resident.js'
+import { renderGuide, staticGuide } from '../lib/guide.js'
 import { existsSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-resetInstructionsCache()
 
 async function stopProjectDaemon(root) {
   try {
@@ -147,7 +147,12 @@ try {
   assert.equal(guideSections.length, 1, 'guide section should be registered')
   assert.equal(typeof guideSections[0].text, 'function', 'guide text should be a dynamic provider')
   assert.equal(guideSections[0].interpolate, false, 'passthrough section must not be interpolated')
-  assert.match(guideSections[0].text(), /codegraph_explore/, 'fallback guide should be active before the first handshake')
+  const guideBefore = guideSections[0].text()
+  assert.match(guideBefore, /codegraph_explore/, 'guide should describe the primary tool')
+  assert.match(guideBefore, /This installation \(DeepSeek Harness\)/, 'guide should carry the DSH-specific section')
+  assert.doesNotMatch(guideBefore, /\{\{/, 'no template placeholders may survive rendering')
+  assert.match(guideBefore, /Additional tools enabled in this session/, 'the "all" surface should be advertised in the guide')
+  assert.match(guideBefore, /codegraph_affected/, 'enabled tools should be listed in the guide')
 
   const exec = { signal: new AbortController().signal, agent: { session: { header: { cwd: fixture } } } }
   const statusTool = definitions.find((tool) => tool.name === 'codegraph_status')
@@ -157,15 +162,25 @@ try {
   const exploreText = await exploreTool.execute({ query: 'add and multiply' }, exec)
   assert.match(exploreText, /add|multiply/i, 'explore tool should return fixture symbols')
 
-  const official = officialInstructions()
-  assert.ok(official && official.length > 5000, 'resident handshake should capture the official server instructions')
-  assert.match(official, /code intelligence over an indexed knowledge graph/, 'captured text should be the official CodeGraph instructions')
-  const guideNow = guideSections[0].text()
-  assert.ok(guideNow.startsWith(official), 'guide should now forward the official instructions verbatim')
-  assert.match(guideNow, /DSH integration notes/, 'guide should append the DSH tool-surface note')
-  assert.match(guideNow, /bootstrap-only extra/, 'note should scope codegraph_init against the official "single tool" text')
+  // The guide is a DSH-tailored playbook rather than a passthrough of the MCP
+  // server instructions: it must stay stable across a handshake, advertise only
+  // registered tools, and keep the official explore-first framing.
+  const guideAfter = guideSections[0].text()
+  assert.equal(guideAfter, guideBefore, 'guide text must not change when a resident server connects')
+  assert.match(guideAfter, /Read-equivalent/, 'guide should keep the official explore-first framing')
+  assert.match(guideAfter, /anti-pattern|Anti-patterns/i, 'guide should keep the anti-pattern section')
+  assert.match(guideAfter, /watcher re-indexes edits within about a second/, 'guide should state the resident watcher behaviour')
 
-  console.log('PASS: plugin registers all tools, executes status + explore, and forwards official instructions')
+  const defaultGuide = staticGuide()
+  assert.doesNotMatch(defaultGuide, /codegraph_status|codegraph_query|codegraph_affected/, 'the default guide must not advertise tools that are not registered')
+  assert.match(defaultGuide, /Only `codegraph_explore` and `codegraph_init`/, 'the default guide should state the actual surface')
+
+  const noResidentGuide = renderGuide({ surface: new Set(['explore']), resident: false, watch: null })
+  assert.match(noResidentGuide, /without a resident watcher/, 'resident: false should be reflected in the guide')
+  const fatalGuide = renderGuide({ surface: new Set(['explore']), resident: true, watch: { state: 'fatal', lastError: 'boom' } })
+  assert.match(fatalGuide, /gave up after repeated failures/, 'a fatal watcher should be reflected in the guide')
+
+  console.log('PASS: plugin registers all tools, executes status + explore, and renders the DSH guide')
 
   const nodeTool = definitions.find((tool) => tool.name === 'codegraph_node')
   const nodeText = await nodeTool.execute({ file: true, name: 'src/math.js' }, exec)
