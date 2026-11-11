@@ -172,13 +172,16 @@ try {
   assert.match(guideAfter, /watcher re-indexes edits within about a second/, 'guide should state the resident watcher behaviour')
 
   const defaultGuide = staticGuide()
-  assert.doesNotMatch(defaultGuide, /codegraph_status|codegraph_query|codegraph_affected/, 'the default guide must not advertise tools that are not registered')
+  assert.doesNotMatch(defaultGuide, /codegraph_status|codegraph_query|codegraph_affected|codegraph_sync/, 'the default guide must not advertise tools that are not registered')
+  const syncGuide = renderGuide({ surface: new Set(['explore', 'init', 'sync']), resident: true, watch: null })
+  assert.match(syncGuide, /codegraph_sync/, 'a session that registers codegraph_sync should be told about it')
   assert.match(defaultGuide, /Only `codegraph_explore` and `codegraph_init`/, 'the default guide should state the actual surface')
 
   const noResidentGuide = renderGuide({ surface: new Set(['explore']), resident: false, watch: null })
   assert.match(noResidentGuide, /without a resident watcher/, 'resident: false should be reflected in the guide')
   const fatalGuide = renderGuide({ surface: new Set(['explore']), resident: true, watch: { state: 'fatal', lastError: 'boom' } })
   assert.match(fatalGuide, /gave up after repeated failures/, 'a fatal watcher should be reflected in the guide')
+  assert.doesNotMatch(fatalGuide, /codegraph_sync/, 'the fatal note must not point at an unregistered codegraph_sync')
 
   console.log('PASS: plugin registers all tools, executes status + explore, and renders the DSH guide')
 
