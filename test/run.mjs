@@ -8,7 +8,7 @@ import { scrubChildEnvironment } from '../lib/env.js'
 import { countFiles, isProjectRoot } from '../lib/workspace.js'
 import { apply } from '../lib/index.js'
 import { probeIndex } from '../lib/readiness.js'
-import { listResidents, residentStatus, stopAllResidents } from '../lib/resident.js'
+import { configureResident, listResidents, residentStatus, stopAllResidents, sweepIdle } from '../lib/resident.js'
 import { renderGuide, staticGuide, exploreDescription } from '../lib/guide.js'
 import { existsSync } from 'node:fs'
 import { spawn } from 'node:child_process'
@@ -287,6 +287,38 @@ try {
   assert.match(rebuild, /initialized: true/, 'force rebuild should leave the project initialized')
   assert.match(rebuild, /watch: active/, 'force rebuild should restart the resident watcher')
   console.log('PASS: force rebuild uses codegraph index and restarts the watcher')
+
+  // Index-root routing: a session working inside a subdirectory of an indexed
+  // project reuses that project's resident server. Keying by session cwd would
+  // spawn a second launcher for a directory that has no .codegraph of its own.
+  const nested = join(fixture, 'src')
+  const nestedDefinitions = []
+  apply(
+    {
+      tools: { register(tool) { nestedDefinitions.push(tool) } },
+      systemPrompt: { section() { return () => {} } },
+      workingDirectory: { async ensure() { return nested } }
+    },
+    { guideSearch: false }
+  )
+  const nestedExplore = nestedDefinitions.find((tool) => tool.name === 'codegraph_explore')
+  const nestedExec = { signal: new AbortController().signal, agent: { session: { header: { cwd: nested } } } }
+  const nestedText = await nestedExplore.execute({ query: 'add function' }, nestedExec)
+  assert.match(nestedText, /add|multiply/i, 'nested session should query the project index')
+  const residentRoots = listResidents().map((entry) => entry.root)
+  assert.ok(residentRoots.includes(fixture), 'resident should be keyed by the index root')
+  assert.ok(!residentRoots.includes(nested), 'a subdirectory session must not spawn its own resident')
+  console.log('PASS: residents are keyed by the index root, not the session cwd')
+
+  // Idle reaping: a quiet resident is stopped once residentIdleTimeoutMs has
+  // elapsed; the default (900000) keeps it for the whole DSH lifetime.
+  configureResident({ enabled: true, maxProjects: 3, idleTimeoutMs: 200, mcpTools: ['explore'] })
+  await sleep(350)
+  const reaped = await sweepIdle()
+  assert.ok(reaped.includes(fixture), 'idle resident should be reaped: ' + JSON.stringify(reaped))
+  assert.equal(listResidents().length, 0, 'no resident should survive the reap')
+  configureResident({ enabled: true, maxProjects: 3, idleTimeoutMs: 900000, mcpTools: ['explore'] })
+  console.log('PASS: idle residents are reaped after residentIdleTimeoutMs')
 
   const autoFixture = await mkdtemp(join(tmpdir(), 'dsh-codegraph-plugin-auto-'))
   try {

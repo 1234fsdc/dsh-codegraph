@@ -80,15 +80,20 @@ Starting with 0.2.0 the plugin keeps one CodeGraph MCP server alive per workspac
 
 Crash recovery matches the official `@deepseek-ai/dsh-mcp-client`: if the MCP launcher exits unexpectedly, the plugin schedules an automatic restart with exponential backoff (0.5 s doubling up to a 30 s cap). In-flight tool calls fail once; the detached CodeGraph daemon keeps running, so the file watcher never stops and the restarted launcher re-attaches to the same daemon. After 10 consecutive failed starts the resident server reports `fatal` — `codegraph_status` shows the last error and the auto-restart count, every call falls back to the CLI, and a successful `codegraph_sync` (or a plugin reload) replaces the server.
 
+Resident servers are keyed by the **index root**, not by the session working directory. A session that works in `repo/packages/foo` while the index lives in `repo` reuses the one server (and one watcher) for `repo`; it does not start a second launcher for a directory that has no `.codegraph` of its own.
+
+Servers that go quiet are reaped after `residentIdleTimeoutMs` (default 15 minutes, `0` keeps them for the whole DSH process lifetime). In-flight calls and servers still completing their handshake are never reaped, so a reap cannot kill a running query. This mirrors DSH's own persistent-session shape — owner-scoped, an explicit unattended timeout, `0` = keep — rather than binding the processes to the plugin's lifetime only.
+
 The resident servers are stopped when the plugin unloads. The CodeGraph daemon itself is shared per project and exits after its idle timeout (CodeGraph default: 5 minutes).
 
 ```yaml
 - id: dsh-codegraph-plugin
   name: dsh-codegraph-plugin
   config:
-    resident: true            # false = CLI-only mode, one process per call
-    maxResidentProjects: 3    # LRU limit for simultaneously watched workspaces
+    resident: true              # false = CLI-only mode, one process per call
+    maxResidentProjects: 3      # LRU limit for simultaneously watched projects
     residentStartTimeoutMs: 30000
+    residentIdleTimeoutMs: 900000  # reap a quiet server after 15 min; 0 = keep
 ```
 
 ## Child processes

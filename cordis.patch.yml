@@ -19,3 +19,6 @@
         resident: true
         maxResidentProjects: 3
         residentStartTimeoutMs: 30000
+        # Reap a resident server after 15 min without a tool call; 0 keeps it
+        # for the whole DSH process lifetime.
+        residentIdleTimeoutMs: 900000
