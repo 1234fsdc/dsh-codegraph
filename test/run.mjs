@@ -6,6 +6,7 @@ import { homedir } from 'node:os'
 import { runCodegraph, formatOutcome } from '../lib/cli.js'
 import { countFiles, isProjectRoot } from '../lib/workspace.js'
 import { apply } from '../lib/index.js'
+import { probeIndex } from '../lib/readiness.js'
 import { officialInstructions, resetInstructionsCache, stopAllResidents } from '../lib/resident.js'
 import { existsSync } from 'node:fs'
 import { spawn } from 'node:child_process'
@@ -80,6 +81,15 @@ try {
   assert.equal(afterInfo.initialized, true, 'fixture should be initialized')
   assert.ok(afterInfo.fileCount >= 1, 'fileCount should be >= 1')
 
+  const probeStart = process.hrtime.bigint()
+  const probed = probeIndex(fixture)
+  const probeMs = Number(process.hrtime.bigint() - probeStart) / 1e6
+  assert.ok(probed, 'filesystem probe should find the fresh index')
+  assert.equal(probed.indexRoot, fixture, 'probe should report the project root')
+  assert.ok(probeMs < 50, 'filesystem probe should take well under a millisecond (took ' + probeMs.toFixed(2) + 'ms)')
+  assert.equal(probeIndex(fixture + '/src')?.indexRoot, probed.indexRoot, 'probe should walk up from a subdirectory')
+  console.log('PASS: filesystem readiness probe finds the index in ' + probeMs.toFixed(2) + 'ms')
+
   const explore = await runCodegraph(
     ['explore', '--path', fixture, '--max-files', '2', 'add and multiply functions'],
     { cwd: fixture, timeoutMs: 120000 }
@@ -150,7 +160,10 @@ try {
   const official = officialInstructions()
   assert.ok(official && official.length > 5000, 'resident handshake should capture the official server instructions')
   assert.match(official, /code intelligence over an indexed knowledge graph/, 'captured text should be the official CodeGraph instructions')
-  assert.equal(guideSections[0].text(), official, 'guide should now forward the official instructions verbatim')
+  const guideNow = guideSections[0].text()
+  assert.ok(guideNow.startsWith(official), 'guide should now forward the official instructions verbatim')
+  assert.match(guideNow, /DSH integration notes/, 'guide should append the DSH tool-surface note')
+  assert.match(guideNow, /bootstrap-only extra/, 'note should scope codegraph_init against the official "single tool" text')
 
   console.log('PASS: plugin registers all tools, executes status + explore, and forwards official instructions')
 
@@ -192,6 +205,7 @@ try {
 
   const autoFixture = await mkdtemp(join(tmpdir(), 'dsh-codegraph-plugin-auto-'))
   try {
+    assert.equal(probeIndex(autoFixture), null, 'probe should report no index for a fresh directory')
     await mkdir(join(autoFixture, 'src'), { recursive: true })
     await writeFile(join(autoFixture, 'package.json'), JSON.stringify({ name: 'auto-fixture', version: '1.0.0' }))
     await writeFile(

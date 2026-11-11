@@ -12,12 +12,12 @@ From GitHub:
 dsh plugin --profile desktop add -w --save-exact github:1234fsdc/dsh-codegraph
 ```
 
-Pin a release with `github:1234fsdc/dsh-codegraph#v0.4.0`.
+Pin a release with `github:1234fsdc/dsh-codegraph#v0.5.0`.
 
 From a release tarball:
 
 ```bash
-dsh plugin --profile desktop add -w --save-exact /absolute/path/to/dsh-codegraph-plugin-0.4.0.tgz
+dsh plugin --profile desktop add -w --save-exact /absolute/path/to/dsh-codegraph-plugin-0.5.0.tgz
 ```
 
 From a local checkout:
@@ -74,7 +74,8 @@ project can be initialized.
 Starting with 0.2.0 the plugin keeps one CodeGraph MCP server alive per workspace, the same architecture the official `codegraph install` uses. The MCP launcher owns a detached CodeGraph daemon with a file watcher, a single SQLite connection and a warm query pool. As a result:
 
 - Edits are re-indexed automatically within about a second; `codegraph_sync` is only a manual fallback.
-- `codegraph_explore` is served over MCP instead of starting a CLI process per call. On the reference 2.47 GB / 607-file workspace a warm MCP explore took about 0.2 s versus about 1.1 s for a cold CLI run.
+- `codegraph_explore` is served over MCP instead of starting a CLI process per call. On the reference 2.47 GB / 607-file workspace a warm MCP explore takes about 0.1 s versus about 1.1 s for a cold CLI run.
+- Each tool call answers "is this project indexed?" with a filesystem probe of `<root>/.codegraph/codegraph.db` (well under 1 ms) instead of running `codegraph status --json`, which has to open and scan the whole database (1.4-1.6 s on the 2.5 GB reference index). The CLI status is only consulted when no index exists, to explain why and to drive `autoInit`.
 - Startup happens lazily on the first tool call for a workspace and costs a few hundred milliseconds. The watcher uses roughly 150 MB of memory per active workspace.
 
 The resident servers are stopped when the plugin unloads. The CodeGraph daemon itself is shared per project and exits after its idle timeout (CodeGraph default: 5 minutes).
@@ -90,7 +91,9 @@ The resident servers are stopped when the plugin unloads. The CodeGraph daemon i
 
 ## Official server instructions
 
-Before the first resident MCP handshake the plugin shows its own short fallback guide in the system prompt. Once any `codegraph_*` tool has run in a workspace, the resident server's `initialize` response supplies the official CodeGraph server instructions (~6.7 KB — the exact text the official `codegraph install` injects), and that text replaces the fallback verbatim for every later prompt assembly. There is no second copy of the playbook to drift out of date; the section is registered with `interpolate: false` so the forwarded text is never rewritten.
+Before the first resident MCP handshake the plugin shows its own short fallback guide in the system prompt. Once any `codegraph_*` tool has run in a workspace, the resident server's `initialize` response supplies the official CodeGraph server instructions (~6.7 KB — the exact text the official `codegraph install` injects), and that text replaces the fallback for every later prompt assembly. There is no second copy of the playbook to drift out of date; the section is registered with `interpolate: false` so the forwarded text is never rewritten.
+
+The official text assumes its MCP server is the only surface ("there is a single tool") and has no init tool. This plugin appends a short "DSH integration notes" paragraph scoping those two statements: `codegraph_init` exists as a bootstrap-only extra and must only run when the user asks to enable CodeGraph for an unindexed project.
 
 ## Initialization
 
