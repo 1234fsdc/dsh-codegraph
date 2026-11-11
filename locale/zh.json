@@ -1,4 +1,4 @@
 {
   "name": "CodeGraph 代码图谱",
-  "description": "为当前工作区提供原生 CodeGraph 工具：状态、初始化、同步、代码探索，以及可选的符号查询。"
+  "description": "为当前工作区提供原生 CodeGraph 工具：以代码探索为主的查询与一次性的索引初始化，另有可选工具可在设置中开启。"
 }

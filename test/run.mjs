@@ -183,6 +183,25 @@ try {
   assert.match(fatalGuide, /gave up after repeated failures/, 'a fatal watcher should be reflected in the guide')
   assert.doesNotMatch(fatalGuide, /codegraph_sync/, 'the fatal note must not point at an unregistered codegraph_sync')
 
+  // 0.7.3: no leftover self-references, and every config-dependent claim
+  // follows the live configuration instead of a hardcoded default.
+  assert.doesNotMatch(defaultGuide, /generic MCP|the text above|"one tool"/, 'the guide must not describe itself as foreign text')
+  assert.match(defaultGuide, /Never initialize a project on your own initiative/, 'with autoInit off the user still decides')
+  const autoInitGuide = renderGuide({ surface: new Set(['explore', 'init']), resident: true, watch: null, autoInit: true })
+  assert.match(autoInitGuide, /autoInit: true/, 'autoInit: true should be reflected in the guide')
+  assert.doesNotMatch(autoInitGuide, /Never initialize a project on your own initiative/, 'the guide must not claim the user decides when autoInit is on')
+  assert.doesNotMatch(noResidentGuide, /last explicit sync/, 'resident: false without codegraph_sync must not point at a sync tool')
+  assert.match(noResidentGuide, /last index build/, 'resident: false without codegraph_sync should say the index only follows builds')
+  const noResidentSyncGuide = renderGuide({ surface: new Set(['explore', 'init', 'sync']), resident: false, watch: null })
+  assert.match(noResidentSyncGuide, /last explicit sync/, 'resident: false with codegraph_sync should point at the sync tool')
+  const autoDesc = exploreDescription(new Set(['explore', 'init']), true, true)
+  assert.match(autoDesc, /initializes one automatically/, 'autoInit: true should be reflected in the explore description')
+  assert.doesNotMatch(autoDesc, /run `codegraph_init` once first/, 'autoInit: true must not tell the model to bootstrap by hand')
+  for (const file of ['en.json', 'zh.json']) {
+    const card = JSON.parse(await readFile(new URL('../locale/' + file, import.meta.url), 'utf8'))
+    assert.doesNotMatch(card.description, /status|sync|状态|同步/, 'the plugin card must not advertise tools the default surface omits (' + file + ')')
+  }
+
   // The explore description follows the same live-surface principle as the guide.
   const defaultDesc = exploreDescription(new Set(['explore', 'init']), true)
   assert.match(defaultDesc, /PRIMARY TOOL — call FIRST/, 'description keeps the explore-first contract')

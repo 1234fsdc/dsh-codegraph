@@ -4,8 +4,8 @@ CodeGraph is a SQLite knowledge graph of every symbol, edge and file in the
 workspace — pre-computed structure you would otherwise re-derive by reading
 files. It indexes 30+ languages (TypeScript/JavaScript, Python, Go, Rust, Java,
 C#, C/C++, PHP, Ruby, Swift, Kotlin, and more) — don't assume a language here
-isn't covered. Reads are sub-millisecond, and the index lags writes by about a
-second. Reach for it BEFORE *and* while writing or editing code — not just for
+isn't covered. Reads come from the pre-built index, not a live file scan. Reach
+for it BEFORE *and* while writing or editing code — not just for
 questions: one call returns the verbatim source PLUS who calls it and what it
 affects, so you edit with the blast radius in view.
 
@@ -47,18 +47,17 @@ answer is typically one to a few calls; a grep/read exploration is dozens.
 
 ## Limitations
 
-- Index lags file writes by about a second.
 - Cross-file resolution is best-effort name matching; ambiguous calls may return multiple candidates.
 - No live correctness validation — that's still the compiler / test suite / linter's job. CodeGraph supplements those with structural context they don't have.
 
 ## This installation (DeepSeek Harness)
 
-CodeGraph here is a native DSH plugin, not the generic MCP server the text above
-was written for: the tools are `codegraph_*` rather than a bare MCP surface, and
-one of them is a real `codegraph_init`. Those two facts scope the statements
-above — "one tool" means `codegraph_explore` is the primary tool, and the
-"indexing is the user's decision" rule is enforced by `codegraph_init`:
+CodeGraph here is a native DSH plugin, not the standalone MCP server: the tools
+are `codegraph_*` rather than a bare MCP surface, and `codegraph_init` is a real
+tool you can call in this conversation. `codegraph_explore` is the primary tool.
+The inventory at the end of this document is authoritative — it lists exactly
+what this session registered, and nothing else exists.
 
-- **Run `codegraph_init` only when the user asks to enable CodeGraph for a project that has no `.codegraph/` index.** Never initialize a project on your own initiative. If a tool reports the project isn't indexed, say so and offer to initialize it — the user decides.
+- {{INIT_POLICY}}
 {{WATCHER}}
 {{EXTRA_TOOLS}}

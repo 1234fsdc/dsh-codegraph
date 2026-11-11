@@ -101,13 +101,13 @@ What survives from the upstream framing:
 - `codegraph_explore` as Read-equivalent (verbatim, line-numbered source + call paths + blast radius);
 - the anti-patterns (don't re-verify with grep, don't reconstruct a flow by hand);
 - the staleness banners and how to react to them;
-- the limitations (index lag, best-effort cross-file resolution, no correctness validation).
+- the limitations (best-effort cross-file resolution, no correctness validation); freshness is stated once, in the live watcher note, so it can never contradict itself.
 
 What is rewritten for DSH:
 
 - the tool inventory is rendered from the live `tools` configuration, so the prompt only advertises the tools that are actually registered;
 - the watcher section is rendered from the live resident state (watcher active / reconnecting / gave up / disabled), so the model is told when the index does *not* follow edits;
-- the "initialization is the user's decision" rule is enforced by `codegraph_init`: run it only when the user asks to enable CodeGraph for a project that has no `.codegraph/` index.
+- the bootstrap rule follows `autoInit`: with it off (the default) the guide says to run `codegraph_init` only when the user asks; with it on the guide says the plugin initializes on first use, so the model is never told to do something the plugin already did.
 
 The section is registered with a dynamic text function, so the rendered guide is rebuilt at every prompt assembly and reflects the current tool surface and watcher state.
 
