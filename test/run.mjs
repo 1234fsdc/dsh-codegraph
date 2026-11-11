@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
-import { runCodegraph, formatOutcome } from '../lib/cli.js'
+import { runCodegraph, formatOutcome, resolveSpawnCwd, assertLaunched } from '../lib/cli.js'
 import { scrubChildEnvironment } from '../lib/env.js'
 import { countFiles, isProjectRoot } from '../lib/workspace.js'
 import { apply } from '../lib/index.js'
@@ -101,6 +101,23 @@ try {
   const sync = await runCodegraph(['sync', fixture], { cwd: fixture, timeoutMs: 120000 })
   assert.equal(sync.code, 0, 'sync should exit 0: ' + formatOutcome(sync))
 
+  // 0.8.1: the child must never run with the project root as its cwd. spawn
+  // validates cwd before the binary starts, so a virtual (app.asar) or missing
+  // directory used to fail with ENOENT and no CodeGraph output at all — exactly
+  // how the first real codegraph_explore call in a DSH session died.
+  assert.ok(existsSync(resolveSpawnCwd()), 'spawn cwd must exist on disk')
+  assert.notEqual(resolveSpawnCwd(), fixture, 'spawn cwd must not be the project root')
+  const bogusCwd = await runCodegraph(['status', '--json', fixture], {
+    cwd: join(fixture, 'no-such-dir'),
+    timeoutMs: 30000
+  })
+  assert.equal(bogusCwd.code, 0, 'a bogus cwd option must not reach spawn: ' + formatOutcome(bogusCwd))
+  assert.throws(
+    () => assertLaunched({ error: Object.assign(new Error('spawn node.exe ENOENT'), { code: 'ENOENT' }) }),
+    /failed to start/,
+    'a launch failure must throw instead of rendering as a successful tool result'
+  )
+
   process.env.CODEGRAPH_TEST_SAFE = 'keep'
   process.env.CODEGRAPH_TEST_API_KEY = 'leaked'
   process.env.CODEGRAPH_TEST_TOKEN = 'leaked'
@@ -177,6 +194,18 @@ try {
   assert.match(statusText, /initialized: true/, 'status tool should report initialized')
   const exploreText = await exploreTool.execute({ query: 'add and multiply' }, exec)
   assert.match(exploreText, /add|multiply/i, 'explore tool should return fixture symbols')
+
+  // 0.8.1 error semantics: conditions the caller can act on come back as a
+  // normal result with guidance (never isError), while real faults throw. The
+  // model passed the DSH app.asar checkout path in its only natural call and a
+  // swallowed spawn error made it abandon the toolset for the rest of the session.
+  const missingPathText = await exploreTool.execute({ query: 'anything', path: 'no-such-project-xyz' }, exec)
+  assert.match(missingPathText, /no such directory on disk/, 'a missing path is an expected result, not a crash')
+  assert.match(missingPathText, /read\/grep\/glob/, 'the refusal should point at the built-in tools')
+  const asarText = await exploreTool.execute({ query: 'anything', path: 'C:\\APP\\dsh\\resources\\app.asar\\dsh' }, exec)
+  assert.match(asarText, /\.asar archive/, 'a virtual asar path must be refused with guidance')
+  assert.doesNotMatch(asarText, /ENOENT/, 'the asar refusal must not leak a spawn error')
+  console.log('PASS: asar and missing paths are refused with guidance before any spawn')
 
   // The guide is a DSH-tailored playbook rather than a passthrough of the MCP
   // server instructions: it must stay stable across a handshake, advertise only

@@ -100,6 +100,17 @@ The resident servers are stopped when the plugin unloads. The CodeGraph daemon i
 
 Every CodeGraph process this plugin spawns — the resident MCP launcher and the CLI fallback — builds its environment through `lib/env.js`, following DSH's rule that a child never inherits the host's ambient secrets: names matching `/KEY|PASSWORD|SECRET|TOKEN/i` and every `DSH_*` variable are dropped, and the plugin's own settings are merged after the scrub (`@deepseek-ai/dsh-subprocess/README.md:80`). When `@deepseek-ai/dsh-subprocess` is resolvable the plugin reuses its `scrubbedParentEnv` directly so the policy stays single-sourced; otherwise the same rule is applied inline. Before 0.7.4 both spawners passed `...process.env` straight through, which could hand host credentials such as `DEEPSEEK_API_KEY` to the CodeGraph child.
 
+## Working directory and failures
+
+CodeGraph children never run *inside* the project: `spawn` receives a private temp directory (`resolveSpawnCwd()` in `lib/cli.js`), and the project is always named explicitly — `--path <root>` for MCP and explore, a positional root for the rest. Node validates `cwd` before the binary starts, so pointing it at the project root used to fail with ENOENT for any path that is not a real directory: virtual paths such as `...\app.asar\dsh\` (DSH prints its own asar checkout in every session prompt, so the model eventually passes it) and projects that do not exist yet. Every command already carried its project, so the working directory had no semantic value — in 0.8.0 it could only break a call.
+
+Failures are now split in two classes:
+
+- **Expected conditions** — no index yet, `path` is not a directory, `path` points inside an `.asar` archive, automatic init declined — return a *normal* tool result carrying guidance ("use the built-in read/grep/glob tools", "run codegraph_init"). They are never `isError`: the official server refuses sensitive paths the same way, because "an `isError: true` early in a session teaches the agent the toolset is broken, and it stops calling codegraph entirely (observed repeatedly)".
+- **Real faults** — missing binary, failed spawn, crash, timeout — throw, so the model sees a tool error instead of plausible-looking text.
+
+This matters more than it sounds. In a 46-session audit of this machine, the only natural `codegraph_explore` call passed the `app.asar` checkout path; 0.8.0 answered `codegraph: spawn ... ENOENT` with `isError: false`, and that session then ran 100+ raw reads without ever retrying CodeGraph.
+
 ## System prompt
 
 The plugin ships its own CodeGraph playbook (source: `lib/guide.md`) instead of forwarding the generic MCP server instructions. The upstream text is written for a bare MCP surface — "there is a single tool", "initialization is a terminal command the user runs" — which contradicts a native DSH plugin that registers eleven `codegraph_*` tools and a real `codegraph_init`. Versions 0.5.0-0.6.0 forwarded the upstream text and appended a scope note; 0.7.0 replaced both with one tailored document. The same principle covers tool descriptions: the `codegraph_explore` description is generated from the live tool surface and watcher setting (`exploreDescription` in `lib/guide.js`), so it never references a tool this session did not register.
@@ -155,6 +166,7 @@ To tune it:
 
 - Each tool operates on the current session workspace by default. Pass `path` to target another project directory.
 - `codegraph_explore` returns source from the index; if a query misses, fall back to the built-in `grep`/`glob`/`read` tools.
+- CodeGraph only indexes real directories on disk. Virtual paths (anything inside an `.asar` archive) and paths that do not exist are refused with guidance — use `read`/`grep`/`glob` there.
 - `codegraph_init` with `force: true` stops the resident server, rebuilds with `codegraph index --force` (the real "rebuild from scratch" command), then restarts the watcher. The CLI's `init --force` flag only permits home/root paths, so the plugin does not use it for rebuilds.
 - The plugin sets `CODEGRAPH_NO_DOWNLOAD=1` for child processes so a missing platform package fails clearly instead of downloading silently.
 - CodeGraph is MIT-licensed. See `NOTICE` and the bundled `LICENSE` files.

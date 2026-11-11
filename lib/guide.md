@@ -49,6 +49,7 @@ answer is typically one to a few calls; a grep/read exploration is dozens.
 
 - Cross-file resolution is best-effort name matching; ambiguous calls may return multiple candidates.
 - No live correctness validation — that's still the compiler / test suite / linter's job. CodeGraph supplements those with structural context they don't have.
+- CodeGraph indexes real directories on disk. Virtual paths (anything inside an `.asar` archive, such as the DSH checkout) and paths that do not exist cannot be indexed — use `read`/`grep`/`glob` there.
 
 ## This installation (DeepSeek Harness)
 
