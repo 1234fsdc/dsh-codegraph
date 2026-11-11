@@ -78,6 +78,8 @@ Starting with 0.2.0 the plugin keeps one CodeGraph MCP server alive per workspac
 - Each tool call answers "is this project indexed?" with a filesystem probe of `<root>/.codegraph/codegraph.db` (well under 1 ms) instead of running `codegraph status --json`, which has to open and scan the whole database (1.4-1.6 s on the 2.5 GB reference index). The CLI status is only consulted when no index exists, to explain why and to drive `autoInit`.
 - Startup happens lazily on the first tool call for a workspace and costs a few hundred milliseconds. The watcher uses roughly 150 MB of memory per active workspace.
 
+Crash recovery matches the official `@deepseek-ai/dsh-mcp-client`: if the MCP launcher exits unexpectedly, the plugin schedules an automatic restart with exponential backoff (0.5 s doubling up to a 30 s cap). In-flight tool calls fail once; the detached CodeGraph daemon keeps running, so the file watcher never stops and the restarted launcher re-attaches to the same daemon. After 10 consecutive failed starts the resident server reports `fatal` — `codegraph_status` shows the last error and the auto-restart count, every call falls back to the CLI, and a successful `codegraph_sync` (or a plugin reload) replaces the server.
+
 The resident servers are stopped when the plugin unloads. The CodeGraph daemon itself is shared per project and exits after its idle timeout (CodeGraph default: 5 minutes).
 
 ```yaml

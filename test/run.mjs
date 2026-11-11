@@ -7,7 +7,7 @@ import { runCodegraph, formatOutcome } from '../lib/cli.js'
 import { countFiles, isProjectRoot } from '../lib/workspace.js'
 import { apply } from '../lib/index.js'
 import { probeIndex } from '../lib/readiness.js'
-import { officialInstructions, resetInstructionsCache, stopAllResidents } from '../lib/resident.js'
+import { listResidents, officialInstructions, residentStatus, resetInstructionsCache, stopAllResidents } from '../lib/resident.js'
 import { existsSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
@@ -196,6 +196,28 @@ try {
   }
   assert.match(deltaText, /deltaWidget/, 'resident watcher should re-index edits without codegraph_sync')
   console.log('PASS: resident file watcher auto-syncs edits')
+
+  // Crash recovery: killing the MCP launcher must schedule an automatic
+  // restart with backoff; the next explore call succeeds against the same
+  // detached daemon (the file watcher never stops).
+  const beforeCrash = listResidents().find((entry) => entry.root === fixture)
+  assert.ok(beforeCrash?.running, 'resident should be running before the crash test')
+  assert.ok(beforeCrash.childPid, 'resident should expose the launcher child pid')
+  try { process.kill(beforeCrash.childPid) } catch { /* already gone */ }
+  let crashStatus = null
+  const crashDeadline = Date.now() + 20000
+  while (Date.now() < crashDeadline) {
+    await sleep(300)
+    crashStatus = residentStatus(fixture)
+    if (crashStatus.state === 'ready' && crashStatus.running && crashStatus.restarts >= 1) break
+  }
+  assert.equal(crashStatus?.state, 'ready', 'resident should reconnect automatically after the launcher crashes')
+  assert.ok(crashStatus.restarts >= 1, 'restart counter should record the recovery')
+  const crashExplore = definitions.find((tool) => tool.name === 'codegraph_explore')
+  const crashText = await crashExplore.execute({ query: 'calc function' }, exec)
+  assert.match(crashText, /calc|add|multiply/, 'explore should work again after the automatic restart')
+  console.log('PASS: resident server restarts automatically after a crash')
+
 
   const initTool = definitions.find((tool) => tool.name === 'codegraph_init')
   const rebuild = await initTool.execute({ force: true }, exec)
