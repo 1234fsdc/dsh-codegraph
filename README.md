@@ -91,6 +91,10 @@ The resident servers are stopped when the plugin unloads. The CodeGraph daemon i
     residentStartTimeoutMs: 30000
 ```
 
+## Child processes
+
+Every CodeGraph process this plugin spawns — the resident MCP launcher and the CLI fallback — builds its environment through `lib/env.js`, following DSH's rule that a child never inherits the host's ambient secrets: names matching `/KEY|PASSWORD|SECRET|TOKEN/i` and every `DSH_*` variable are dropped, and the plugin's own settings are merged after the scrub (`@deepseek-ai/dsh-subprocess/README.md:80`). When `@deepseek-ai/dsh-subprocess` is resolvable the plugin reuses its `scrubbedParentEnv` directly so the policy stays single-sourced; otherwise the same rule is applied inline. Before 0.7.4 both spawners passed `...process.env` straight through, which could hand host credentials such as `DEEPSEEK_API_KEY` to the CodeGraph child.
+
 ## System prompt
 
 The plugin ships its own CodeGraph playbook (source: `lib/guide.md`) instead of forwarding the generic MCP server instructions. The upstream text is written for a bare MCP surface — "there is a single tool", "initialization is a terminal command the user runs" — which contradicts a native DSH plugin that registers eleven `codegraph_*` tools and a real `codegraph_init`. Versions 0.5.0-0.6.0 forwarded the upstream text and appended a scope note; 0.7.0 replaced both with one tailored document. The same principle covers tool descriptions: the `codegraph_explore` description is generated from the live tool surface and watcher setting (`exploreDescription` in `lib/guide.js`), so it never references a tool this session did not register.

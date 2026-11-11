@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { runCodegraph, formatOutcome } from '../lib/cli.js'
+import { scrubChildEnvironment } from '../lib/env.js'
 import { countFiles, isProjectRoot } from '../lib/workspace.js'
 import { apply } from '../lib/index.js'
 import { probeIndex } from '../lib/readiness.js'
@@ -100,7 +101,22 @@ try {
   const sync = await runCodegraph(['sync', fixture], { cwd: fixture, timeoutMs: 120000 })
   assert.equal(sync.code, 0, 'sync should exit 0: ' + formatOutcome(sync))
 
+  process.env.CODEGRAPH_TEST_SAFE = 'keep'
+  process.env.CODEGRAPH_TEST_API_KEY = 'leaked'
+  process.env.CODEGRAPH_TEST_TOKEN = 'leaked'
+  process.env.DSH_CODEGRAPH_TEST_AMBIENT = 'leaked'
+  const childEnv = scrubChildEnvironment({ CODEGRAPH_TEST_EXACT: 'explicit' })
+  assert.equal(childEnv.CODEGRAPH_TEST_SAFE, 'keep', 'non-sensitive ambient vars are kept')
+  assert.equal(childEnv.CODEGRAPH_TEST_EXACT, 'explicit', 'explicit entries merge after the scrub')
+  assert.equal(childEnv.CODEGRAPH_TEST_API_KEY, undefined, 'credential-shaped vars are scrubbed')
+  assert.equal(childEnv.CODEGRAPH_TEST_TOKEN, undefined, 'token-shaped vars are scrubbed')
+  assert.equal(childEnv.DSH_CODEGRAPH_TEST_AMBIENT, undefined, 'ambient DSH_* vars are scrubbed')
+  delete process.env.CODEGRAPH_TEST_SAFE
+  delete process.env.CODEGRAPH_TEST_API_KEY
+  delete process.env.CODEGRAPH_TEST_TOKEN
+  delete process.env.DSH_CODEGRAPH_TEST_AMBIENT
   console.log('PASS: cli status/init/explore/sync and workspace helpers')
+  console.log('PASS: child environment scrubs credentials and ambient DSH_* vars')
   console.log('status:', afterInfo.fileCount, 'files,', afterInfo.nodeCount, 'nodes,', afterInfo.edgeCount, 'edges')
 
   const definitions = []
