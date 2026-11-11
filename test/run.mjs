@@ -6,12 +6,14 @@ import { homedir } from 'node:os'
 import { runCodegraph, formatOutcome } from '../lib/cli.js'
 import { countFiles, isProjectRoot } from '../lib/workspace.js'
 import { apply } from '../lib/index.js'
-import { stopAllResidents } from '../lib/resident.js'
+import { officialInstructions, resetInstructionsCache, stopAllResidents } from '../lib/resident.js'
 import { existsSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+resetInstructionsCache()
 
 async function stopProjectDaemon(root) {
   try {
@@ -45,15 +47,11 @@ async function cleanupFixture(root) {
 }
 
 if (!process.env.DSH_CODEGRAPH_PACKAGE_ROOT) {
-  process.env.DSH_CODEGRAPH_PACKAGE_ROOT = join(
-    homedir(),
-    'AppData',
-    'Roaming',
-    'npm',
-    'node_modules',
-    '@colbymchenry',
-    'codegraph'
-  )
+  // Prefer the bundled 1.6.2 copy: its initialize response carries the server
+  // instructions the passthrough test asserts on (the older global 1.6.0 may not).
+  const profileRoot = join(homedir(), '.dsh', 'profiles', 'desktop', 'node_modules', '@colbymchenry', 'codegraph')
+  const globalRoot = join(homedir(), 'AppData', 'Roaming', 'npm', 'node_modules', '@colbymchenry', 'codegraph')
+  process.env.DSH_CODEGRAPH_PACKAGE_ROOT = existsSync(join(profileRoot, 'package.json')) ? profileRoot : globalRoot
 }
 
 const fixture = await mkdtemp(join(tmpdir(), 'dsh-codegraph-plugin-'))
@@ -137,7 +135,9 @@ try {
   )
 
   assert.equal(guideSections.length, 1, 'guide section should be registered')
-  assert.match(guideSections[0].text, /codegraph_explore/)
+  assert.equal(typeof guideSections[0].text, 'function', 'guide text should be a dynamic provider')
+  assert.equal(guideSections[0].interpolate, false, 'passthrough section must not be interpolated')
+  assert.match(guideSections[0].text(), /codegraph_explore/, 'fallback guide should be active before the first handshake')
 
   const exec = { signal: new AbortController().signal, agent: { session: { header: { cwd: fixture } } } }
   const statusTool = definitions.find((tool) => tool.name === 'codegraph_status')
@@ -147,7 +147,12 @@ try {
   const exploreText = await exploreTool.execute({ query: 'add and multiply' }, exec)
   assert.match(exploreText, /add|multiply/i, 'explore tool should return fixture symbols')
 
-  console.log('PASS: plugin registers all tools and executes status + explore')
+  const official = officialInstructions()
+  assert.ok(official && official.length > 5000, 'resident handshake should capture the official server instructions')
+  assert.match(official, /code intelligence over an indexed knowledge graph/, 'captured text should be the official CodeGraph instructions')
+  assert.equal(guideSections[0].text(), official, 'guide should now forward the official instructions verbatim')
+
+  console.log('PASS: plugin registers all tools, executes status + explore, and forwards official instructions')
 
   const nodeTool = definitions.find((tool) => tool.name === 'codegraph_node')
   const nodeText = await nodeTool.execute({ file: true, name: 'src/math.js' }, exec)

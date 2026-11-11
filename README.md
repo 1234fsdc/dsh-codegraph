@@ -12,12 +12,12 @@ From GitHub:
 dsh plugin --profile desktop add -w --save-exact github:1234fsdc/dsh-codegraph
 ```
 
-Pin a release with `github:1234fsdc/dsh-codegraph#v0.3.0`.
+Pin a release with `github:1234fsdc/dsh-codegraph#v0.4.0`.
 
 From a release tarball:
 
 ```bash
-dsh plugin --profile desktop add -w --save-exact /absolute/path/to/dsh-codegraph-plugin-0.3.0.tgz
+dsh plugin --profile desktop add -w --save-exact /absolute/path/to/dsh-codegraph-plugin-0.4.0.tgz
 ```
 
 From a local checkout:
@@ -87,6 +87,10 @@ The resident servers are stopped when the plugin unloads. The CodeGraph daemon i
     maxResidentProjects: 3    # LRU limit for simultaneously watched workspaces
     residentStartTimeoutMs: 30000
 ```
+
+## Official server instructions
+
+Before the first resident MCP handshake the plugin shows its own short fallback guide in the system prompt. Once any `codegraph_*` tool has run in a workspace, the resident server's `initialize` response supplies the official CodeGraph server instructions (~6.7 KB — the exact text the official `codegraph install` injects), and that text replaces the fallback verbatim for every later prompt assembly. There is no second copy of the playbook to drift out of date; the section is registered with `interpolate: false` so the forwarded text is never rewritten.
 
 ## Initialization
 
