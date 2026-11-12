@@ -8,7 +8,7 @@ import { DEFAULT_MAX_OUTPUT_CHARS, exploreOutputBudget, truncateMiddle } from '.
 import { daemonLiveness } from '../lib/daemon.js'
 import { scrubChildEnvironment } from '../lib/env.js'
 import { countFiles, isProjectRoot } from '../lib/workspace.js'
-import { apply } from '../lib/index.js'
+import { apply, formatWatch } from '../lib/index.js'
 import { probeIndex } from '../lib/readiness.js'
 import { configureResident, listResidents, residentStatus, stopAllResidents, sweepIdle } from '../lib/resident.js'
 import { renderGuide, staticGuide, exploreDescription } from '../lib/guide.js'
@@ -446,6 +446,23 @@ try {
       const live = await daemonLiveness(deadRoot)
       assert.equal(live.pidAlive, false, 'a nonexistent pid must be reported dead')
       assert.equal(live.alive, false, 'a dead pid must not be reported as a live daemon')
+      // The status line is what the model actually reads: a dead pid must never
+      // render as "watch: active" (P0-3).
+      assert.match(
+        formatWatch({ running: true, pid: 99999999, pidAlive: false }, true),
+        /watch: STALE/,
+        'a dead daemon pid must render as STALE, not active'
+      )
+      assert.match(
+        formatWatch({ running: true, pid: 1234, pidAlive: true, socketAlive: false }, false),
+        /watch: unresponsive/,
+        'a live pid that fails the socket handshake must render as unresponsive'
+      )
+      assert.match(
+        formatWatch({ running: true, pid: 1234, pidAlive: true, socketAlive: true }, true),
+        /watch: active \(daemon pid 1234\)/,
+        'a verified daemon still renders as active'
+      )
       console.log('PASS: daemon liveness rejects a stale pidfile')
     } finally {
       await rm(deadRoot, { recursive: true, force: true })
