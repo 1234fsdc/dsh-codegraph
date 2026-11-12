@@ -61,4 +61,5 @@ what this session registered, and nothing else exists.
 
 - {{INIT_POLICY}}
 {{WATCHER}}
+{{OUTPUT_BUDGET}}
 {{EXTRA_TOOLS}}

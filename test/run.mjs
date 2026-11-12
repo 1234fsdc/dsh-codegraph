@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { runCodegraph, formatOutcome, resolveSpawnCwd, assertLaunched } from '../lib/cli.js'
+import { DEFAULT_MAX_OUTPUT_CHARS, exploreOutputBudget, truncateMiddle } from '../lib/budget.js'
+import { daemonLiveness } from '../lib/daemon.js'
 import { scrubChildEnvironment } from '../lib/env.js'
 import { countFiles, isProjectRoot } from '../lib/workspace.js'
 import { apply } from '../lib/index.js'
@@ -157,9 +159,13 @@ try {
       'codegraph_callers',
       'codegraph_callees',
       'codegraph_impact',
-      'codegraph_affected'
+      'codegraph_affected',
+      'codegraph_context',
+      'codegraph_uninit',
+      'codegraph_unlock',
+      'codegraph_daemon'
     ],
-    'plugin should register all eleven tools by default'
+    'plugin should register all fifteen tools by default'
   )
 
   const defaultSurfaceDefinitions = []
@@ -186,12 +192,17 @@ try {
   assert.doesNotMatch(guideBefore, /\{\{/, 'no template placeholders may survive rendering')
   assert.match(guideBefore, /Additional tools enabled in this session/, 'the "all" surface should be advertised in the guide')
   assert.match(guideBefore, /codegraph_affected/, 'enabled tools should be listed in the guide')
+  assert.match(guideBefore, /codegraph_context/, 'the context builder should be advertised on the all surface')
 
   const exec = { signal: new AbortController().signal, agent: { session: { header: { cwd: fixture } } } }
   const statusTool = definitions.find((tool) => tool.name === 'codegraph_status')
   const exploreTool = definitions.find((tool) => tool.name === 'codegraph_explore')
   const statusText = await statusTool.execute({}, exec)
   assert.match(statusText, /initialized: true/, 'status tool should report initialized')
+  assert.doesNotMatch(statusText, /"nodesByKind"/, 'the raw JSON dump must be opt-in (P0-2)')
+  assert.match(statusText, /pendingChanges:/, 'status must surface pendingChanges')
+  const statusJsonText = await statusTool.execute({ json: true }, exec)
+  assert.match(statusJsonText, /"nodesByKind"/, 'json: true should include the raw status dump')
   const exploreText = await exploreTool.execute({ query: 'add and multiply' }, exec)
   assert.match(exploreText, /add|multiply/i, 'explore tool should return fixture symbols')
 
@@ -367,7 +378,7 @@ try {
     }
     apply(autoCtx, { guideSearch: false, autoInit: true, tools: 'all' })
     const autoExec = { signal: new AbortController().signal, agent: { session: { header: { cwd: autoFixture } } } }
-    assert.equal(autoDefinitions.length, 11, 'auto-init context should also register all eleven tools')
+    assert.equal(autoDefinitions.length, 15, 'auto-init context should also register all fifteen tools')
 
     const defaultDefinitions = []
     apply(
@@ -391,6 +402,67 @@ try {
     )
     assert.equal(autoStatus.initialized, true, 'auto-init should create an index')
     console.log('PASS: autoInit initializes an unindexed project on first query')
+
+    // P0-1: every answer is capped, and the cap explains itself.
+    const synthetic = {
+      code: 0,
+      command: 'files',
+      stdout: JSON.stringify(Array.from({ length: 4000 }, (_, i) => ({
+        path: 'src/generated/file-' + i + '.js',
+        language: 'javascript',
+        nodeCount: i,
+        size: 100
+      })))
+    }
+    const capped = formatOutcome(synthetic)
+    assert.ok(capped.length <= DEFAULT_MAX_OUTPUT_CHARS, 'files output should be capped at the default budget')
+    assert.match(capped, /truncated: omitted \d+ middle line/, 'the cap must state how much was omitted')
+    assert.equal(truncateMiddle('short', 100), 'short', 'text under budget must pass through')
+
+    // P1-7: official explore tiers.
+    assert.deepEqual(exploreOutputBudget(100), { maxOutputChars: 13000, defaultMaxFiles: 4, maxCharsPerFile: 3800 })
+    assert.deepEqual(exploreOutputBudget(400), { maxOutputChars: 18000, defaultMaxFiles: 5, maxCharsPerFile: 3800 })
+    assert.deepEqual(exploreOutputBudget(3000), { maxOutputChars: 24000, defaultMaxFiles: 8, maxCharsPerFile: 6500 })
+
+    // P0-4: per-definition `affected` must not duplicate the top-level union.
+    const impact = await runCodegraph(['impact', '--json', '--path', fixture, '-d', '2', 'calc'], { timeoutMs: 60000 })
+    assert.equal(impact.code, 0, 'impact should exit 0: ' + formatOutcome(impact))
+    const impactData = JSON.parse(formatOutcome(impact))
+    const impactDefinition = impactData.definitions[0]
+    if (Array.isArray(impactData.affected)) {
+      assert.equal(impactDefinition.affected, undefined, 'per-definition affected duplicates the top-level union')
+      assert.equal(impactDefinition.affectedCount, impactData.affected.length, 'the count must match the top-level union')
+    }
+    console.log('PASS: output budget tiers and impact de-duplication')
+
+    // P0-3: a dead pidfile must never read as a live watcher.
+    const deadRoot = await mkdtemp(join(tmpdir(), 'dsh-codegraph-plugin-daemon-'))
+    try {
+      await mkdir(join(deadRoot, '.codegraph'), { recursive: true })
+      await writeFile(
+        join(deadRoot, '.codegraph', 'daemon.pid'),
+        JSON.stringify({ pid: 99999999, version: '1.6.2', socketPath: '\\\\.\\pipe\\codegraph-does-not-exist' })
+      )
+      const live = await daemonLiveness(deadRoot)
+      assert.equal(live.pidAlive, false, 'a nonexistent pid must be reported dead')
+      assert.equal(live.alive, false, 'a dead pid must not be reported as a live daemon')
+      console.log('PASS: daemon liveness rejects a stale pidfile')
+    } finally {
+      await rm(deadRoot, { recursive: true, force: true })
+    }
+
+    // P1-6: new tools work and uninit demands explicit force.
+    const contextTool = autoDefinitions.find((tool) => tool.name === 'codegraph_context')
+    const contextText = await contextTool.execute({ task: 'greet function', maxNodes: 6 }, autoExec)
+    assert.match(contextText, /greet|shout|Code Context/i, 'codegraph_context should return task-shaped context')
+    const uninitTool = autoDefinitions.find((tool) => tool.name === 'codegraph_uninit')
+    const refusal = await uninitTool.execute({}, autoExec)
+    assert.match(refusal, /force: true/, 'uninit without force must refuse')
+    assert.ok(existsSync(join(autoFixture, '.codegraph')), 'uninit without force must not delete the index')
+    const daemonTool = autoDefinitions.find((tool) => tool.name === 'codegraph_daemon')
+    const daemonList = await daemonTool.execute({ action: 'list' }, autoExec)
+    assert.equal(typeof daemonList, 'string', 'codegraph_daemon list should return text')
+    console.log('PASS: context/uninit/daemon tools and uninit safety')
   } finally {
     await cleanupFixture(autoFixture)
   }

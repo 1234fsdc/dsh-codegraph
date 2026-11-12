@@ -12,12 +12,12 @@ From GitHub:
 dsh plugin --profile desktop add -w --save-exact github:1234fsdc/dsh-codegraph
 ```
 
-Pin a release with `github:1234fsdc/dsh-codegraph#v0.5.0`.
+Pin a release with `github:1234fsdc/dsh-codegraph#v0.9.0`.
 
 From a release tarball:
 
 ```bash
-dsh plugin --profile desktop add -w --save-exact /absolute/path/to/dsh-codegraph-plugin-0.5.0.tgz
+dsh plugin --profile desktop add -w --save-exact /absolute/path/to/dsh-codegraph-plugin-0.9.0.tgz
 ```
 
 From a local checkout:
@@ -51,13 +51,17 @@ By default the plugin follows the official `codegraph install` surface: only `co
 | `codegraph_callees` | Find functions/methods a symbol calls. | off |
 | `codegraph_impact` | Analyze what code is affected by changing a symbol. | off |
 | `codegraph_affected` | Find test files affected by changed source files. | off |
+| `codegraph_context` | Assemble task-oriented context (entry points + related symbols) for a work item. | off |
+| `codegraph_uninit` | Delete `.codegraph/` for a project (requires explicit `force: true`). | off |
+| `codegraph_unlock` | Clear stale index locks and dead daemon artifacts. | off |
+| `codegraph_daemon` | List verified CodeGraph daemons, or stop one by path. | off |
 
 ### Tool surface
 
 The `tools` config controls which tools are listed. It accepts:
 
 - `['explore']` (default) — the official surface;
-- `'all'` — every tool, including the 10 above;
+- `'all'` — every tool, including the 14 above;
 - a comma-separated string such as `"explore,query,node"`;
 - a list such as `["explore", "status", "query"]`.
 
@@ -68,6 +72,53 @@ registered when the plugin loads, so changing it requires reloading the plugin
 
 `codegraph_init` is always registered regardless of `tools` so an unindexed
 project can be initialized.
+
+## Output budget
+
+Every tool answer is budgeted. Plain-text and JSON CLI answers pass through one
+pipeline (`formatOutcome` in `lib/cli.js`):
+
+1. Large JSON payloads are **compacted** first — `codegraph_files` rows lose
+   `size` metadata, `codegraph_impact`/`codegraph_callers`/`codegraph_callees`
+   per-definition arrays that duplicate the top-level union collapse into a
+   `<key>Count` field (`affectedCount: 46, affectedOmitted: "same rows as
+   top-level affected"`), and per-definition `edges` become `edgeCount`.
+2. Whatever remains is **middle-truncated** to `maxOutputChars` (default
+   15,000) with a line-aligned head + tail and an explicit notice:
+   `…[codegraph files truncated: omitted 504 middle lines (53980 chars); total 68841 chars, limit 15000]…`
+3. An empty result is **annotated, not disguised**: `codegraph_query` returning
+   `[]` gains "(empty result: no symbol matched the search — the CLI exited
+   successfully, this is data, not a failure)", so the model cannot mistake a
+   miss for a broken tool.
+
+Explore has its own tiered budget mirroring the official MCP server
+(`lib/budget.js`): the per-call output cap and default file count follow the
+indexed file count (small projects get tighter, more focused answers; large
+ones get up to 24,000 chars / 8 files per call, hard ceiling 25,000). When a
+call hits the cap the notice is a budget signal, not an error — narrow the
+query and call again.
+
+## Status summary
+
+`codegraph_status` prints a compact summary plus a `## Needs attention`
+section that surfaces exactly the fields a stale index hides:
+`pendingChanges` totals, `reindexRecommended` (with the extraction-version
+gap, e.g. `v25 → v27`), non-complete index state, pending refs, and
+worktree mismatch. The full raw JSON dump is opt-in via `json: true` (or the
+`statusJson` config) instead of being appended to every answer.
+
+## Watcher liveness
+
+`watch: active` is no longer taken on faith from `.codegraph/daemon.pid`. The
+pid file is only trusted after `process.kill(pid, 0)` succeeds, and when a
+socket path is recorded the plugin also probes it with a real connection
+attempt (a recycled pid would pass the kill(0) test; the socket probe catches
+that too). A dead or unresponsive daemon changes the status line to
+`watch: stale — …` / `watch: unresponsive — …` and the guide tells the model
+explicitly that **the index is NOT auto-syncing**, so it knows to run
+`codegraph_sync` or re-check files itself instead of trusting the index.
+`codegraph_daemon` lists daemons from `~/.codegraph/daemons/*.json` filtered
+through the same liveness check, and can stop one by path.
 
 ## Resident index watcher
 
@@ -82,7 +133,7 @@ Crash recovery matches the official `@deepseek-ai/dsh-mcp-client`: if the MCP la
 
 Resident servers are keyed by the **index root**, not by the session working directory. A session that works in `repo/packages/foo` while the index lives in `repo` reuses the one server (and one watcher) for `repo`; it does not start a second launcher for a directory that has no `.codegraph` of its own.
 
-Servers that go quiet are reaped after `residentIdleTimeoutMs` (default 15 minutes, `0` keeps them for the whole DSH process lifetime). In-flight calls and servers still completing their handshake are never reaped, so a reap cannot kill a running query. This mirrors DSH's own persistent-session shape — owner-scoped, an explicit unattended timeout, `0` = keep — rather than binding the processes to the plugin's lifetime only.
+Servers that go quiet are reaped after `residentIdleTimeoutMs` (default 5 minutes since 0.9.0, matching the CodeGraph daemon's own idle timeout; `0` keeps them for the whole DSH process lifetime). In-flight calls and servers still completing their handshake are never reaped, so a reap cannot kill a running query. This mirrors DSH's own persistent-session shape — owner-scoped, an explicit unattended timeout, `0` = keep — rather than binding the processes to the plugin's lifetime only.
 
 The resident servers are stopped when the plugin unloads. The CodeGraph daemon itself is shared per project and exits after its idle timeout (CodeGraph default: 5 minutes).
 
@@ -93,8 +144,25 @@ The resident servers are stopped when the plugin unloads. The CodeGraph daemon i
     resident: true              # false = CLI-only mode, one process per call
     maxResidentProjects: 3      # LRU limit for simultaneously watched projects
     residentStartTimeoutMs: 30000
-    residentIdleTimeoutMs: 900000  # reap a quiet server after 15 min; 0 = keep
+    residentIdleTimeoutMs: 300000  # reap a quiet server after 5 min; 0 = keep
 ```
+
+## Explore budget tiers
+
+`codegraph_explore` no longer uses a fixed `maxFiles` for every project. The
+default file count and per-call character budget follow the indexed file
+count, mirroring the official MCP server:
+
+| Indexed files | Default files per call | Output cap | Per-file cap |
+| --- | --- | --- | --- |
+| < 150 | 4 | 13,000 chars | 3,800 |
+| < 500 | 5 | 18,000 chars | 3,800 |
+| < 5,000 | 8 | 24,000 chars | 6,500 |
+| ≥ 5,000 | 8 | 24,000 chars | 7,000 |
+
+Set `maxFiles: 0` (the new default) to use the tier for the current project, or
+pass an explicit `maxFiles` per call to override it. `exploreMaxOutputChars`
+caps the final answer regardless of tier.
 
 ## Child processes
 
@@ -113,7 +181,7 @@ This matters more than it sounds. In a 46-session audit of this machine, the onl
 
 ## System prompt
 
-The plugin ships its own CodeGraph playbook (source: `lib/guide.md`) instead of forwarding the generic MCP server instructions. The upstream text is written for a bare MCP surface — "there is a single tool", "initialization is a terminal command the user runs" — which contradicts a native DSH plugin that registers eleven `codegraph_*` tools and a real `codegraph_init`. Versions 0.5.0-0.6.0 forwarded the upstream text and appended a scope note; 0.7.0 replaced both with one tailored document. The same principle covers tool descriptions: the `codegraph_explore` description is generated from the live tool surface and watcher setting (`exploreDescription` in `lib/guide.js`), so it never references a tool this session did not register.
+The plugin ships its own CodeGraph playbook (source: `lib/guide.md`) instead of forwarding the generic MCP server instructions. The upstream text is written for a bare MCP surface — "there is a single tool", "initialization is a terminal command the user runs" — which contradicts a native DSH plugin that registers fifteen `codegraph_*` tools and a real `codegraph_init`. Versions 0.5.0-0.6.0 forwarded the upstream text and appended a scope note; 0.7.0 replaced both with one tailored document. The same principle covers tool descriptions: the `codegraph_explore` description is generated from the live tool surface and watcher setting (`exploreDescription` in `lib/guide.js`), so it never references a tool this session did not register.
 
 What survives from the upstream framing:
 
@@ -154,12 +222,16 @@ To tune it:
     initTimeoutMs: 600000
     queryTimeoutMs: 120000
     syncTimeoutMs: 300000
-    maxFiles: 8
+    maxFiles: 0                # 0 = auto tier by indexed file count
+    maxOutputChars: 15000      # head+tail budget for CLI tool answers
+    exploreMaxOutputChars: 24000
     guideSearch: true
     tools: ['explore']        # 'all' or a list to expose more tools
     resident: true
     maxResidentProjects: 3
     residentStartTimeoutMs: 30000
+    residentIdleTimeoutMs: 300000
+    freshnessCheck: true       # warn when files changed after the last index write
 ```
 
 ## Notes
@@ -168,7 +240,10 @@ To tune it:
 - `codegraph_explore` returns source from the index; if a query misses, fall back to the built-in `grep`/`glob`/`read` tools.
 - CodeGraph only indexes real directories on disk. Virtual paths (anything inside an `.asar` archive) and paths that do not exist are refused with guidance — use `read`/`grep`/`glob` there.
 - `codegraph_init` with `force: true` stops the resident server, rebuilds with `codegraph index --force` (the real "rebuild from scratch" command), then restarts the watcher. The CLI's `init --force` flag only permits home/root paths, so the plugin does not use it for rebuilds.
+- `codegraph_uninit` refuses to run without `force: true` — deleting `.codegraph/` must be explicit, never a default path.
 - The plugin sets `CODEGRAPH_NO_DOWNLOAD=1` for child processes so a missing platform package fails clearly instead of downloading silently.
+- Set `exploreDedup: true` to enable the official cross-call dedup (`CODEGRAPH_EXPLORE_DEDUP=1`): repeated source blocks come back as back-references instead of being re-sent. Off by default because it only pays off when the host guarantees one durable context per connection.
+- Set `exploreDiagnostics: true` to append a per-file answer diagnostics block (chars/share per included file) to explore answers, mirroring the official `CODEGRAPH_EXPLORE_DEBUG` report in a compact form.
 - CodeGraph is MIT-licensed. See `NOTICE` and the bundled `LICENSE` files.
 
 ## Development
